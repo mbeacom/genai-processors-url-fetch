@@ -49,6 +49,97 @@ We use [uv](https://docs.astral.sh/uv/) as our package manager for its speed and
 - **Run commands**: `uv run command`
 - **Build package**: `uv build`
 
+### Task Runner: Poe the Poet
+
+This project uses [Poe the Poet](https://poethepoet.natn.io/) as a task runner to simplify common development workflows. After running `uv sync --all-groups`, you can use `uv run poe <task>` to execute any of the following tasks:
+
+#### View Available Tasks
+
+```bash
+# See all available tasks with descriptions
+uv run poe --help
+
+# Get help for a specific task
+uv run poe --help <task_name>
+
+# See what a task would do without running it (for individual commands)
+uv run poe --dry-run <task_name>
+```
+
+> **Note**: The `--dry-run` option works with individual command tasks but not with sequence tasks (like `fix`, `check`, `security`). For sequence tasks, refer to their descriptions to see which sub-tasks they run.
+
+#### Code Quality & Linting
+
+```bash
+# Auto-fix code issues (recommended for development)
+uv run poe fix           # Run ruff --fix and black formatting
+
+# Check code quality without making changes
+uv run poe check         # Run ruff, black, and mypy checks
+uv run poe check-ruff    # Check with ruff linter only
+uv run poe check-black   # Check black formatting only
+uv run poe check-mypy    # Check type annotations only
+
+# Individual tools
+uv run poe ruff          # Run ruff with --fix
+uv run poe black         # Format code with black
+```
+
+#### Testing with Poe
+
+```bash
+# Run all tests with coverage report
+uv run poe test          # Runs pytest with coverage (XML + terminal output)
+
+# Run specific tests (bypass poe for more control)
+uv run pytest genai_processors_url_fetch/tests/test_url_fetch.py -v
+uv run pytest genai_processors_url_fetch/tests/ -k "test_security"
+```
+
+#### Security Analysis
+
+```bash
+# Run security analysis
+uv run poe security      # Run bandit security linter
+uv run poe bandit        # Run bandit directly
+```
+
+#### Build & Distribution
+
+```bash
+# Install dependencies
+uv run poe install      # Equivalent to 'uv sync --all-groups'
+
+# Build the package
+uv run poe build        # Create wheel and source distribution
+```
+
+#### Pre-commit Hooks (if using)
+
+```bash
+# Update pre-commit hooks
+uv run poe update-precommit-hooks
+
+# Run all pre-commit hooks
+uv run poe check-precommit-hooks
+```
+
+#### Common Development Workflows
+
+```bash
+# Before committing (recommended)
+uv run poe fix && uv run poe test && uv run poe security
+
+# Quick development cycle
+uv run poe fix          # Fix formatting and linting
+uv run poe test         # Run tests
+# Make changes...
+uv run poe check        # Verify everything looks good
+
+# Full quality check
+uv run poe check && uv run poe test && uv run poe security
+```
+
 ### Code Quality: Pre-commit
 
 Pre-commit hooks run automatically before each commit to ensure code quality:

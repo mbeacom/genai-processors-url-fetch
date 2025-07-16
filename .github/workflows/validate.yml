@@ -35,6 +35,10 @@ jobs:
       - name: Run tests
         run: uv run poe test
 
+      - name: Run checks
+        if: matrix.python-version == '3.13'
+        run: uv run poe check
+
       - name: Run security checks
         if: matrix.python-version == '3.13'
         run: uv run poe security

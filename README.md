@@ -244,38 +244,9 @@ The test suite includes:
 
 ## Development
 
-This project uses [uv](https://docs.astral.sh/uv/) for dependency management and development workflows.
+For development setup, testing, and contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-### Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/mbeacom/genai-processors-url-fetch.git
-cd genai-processors-url-fetch
-
-# Install dependencies
-uv sync --all-groups
-```
-
-### Running Tests
-
-```bash
-# Run all tests with coverage
-uv run poe test
-
-# Run specific tests
-uv run pytest genai_processors_url_fetch/tests/test_url_fetch.py -v
-```
-
-### Code Quality
-
-```bash
-# Run all checks
-uv run poe check
-
-# Auto-fix issues
-uv run poe fix
-```
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management and [Poe the Poet](https://poethepoet.natn.io/) for task automation.
 
 ## Contributing
 
