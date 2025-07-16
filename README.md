@@ -1,5 +1,10 @@
 # genai-processors-url-fetch
 
+[![PyPI version](https://img.shields.io/pypi/v/genai-processors-url-fetch.svg)](https://pypi.org/project/genai-processors-url-fetch/)
+[![Validation](https://github.com/mbeacom/genai-processors-url-fetch/actions/workflows/validate.yml/badge.svg)](https://github.com/mbeacom/genai-processors-url-fetch/actions/workflows/validate.yml)
+[![codecov](https://codecov.io/github/mbeacom/genai-processors-url-fetch/graph/badge.svg?token=ghq0EnDIZl)](https://codecov.io/github/mbeacom/genai-processors-url-fetch)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 A URL Fetch Processor for Google's genai-processors framework that detects URLs in text, fetches their content concurrently, and yields new ProcessorParts containing the page content.
 
 ## UrlFetchProcessor
