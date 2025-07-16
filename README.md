@@ -99,7 +99,7 @@ The `FetchConfig` dataclass provides comprehensive configuration options organiz
 * **allowed_schemes** (list[str], default: ['http', 'https']): A list of allowed URL schemes.
 * **max_response_size** (int, default: 10485760): The maximum size of the response body in bytes (10MB).
 
-### **Usage Examples**
+### Usage Examples
 
 #### High Security Configuration
 
@@ -171,7 +171,7 @@ For each ProcessorPart that contains one or more URLs, the UrlFetchProcessor yie
 * The metadata['fetch_error'] contains a string describing the error (e.g., "Security validation failed: Domain '...' is blocked" or "HTTP Error: 404...").
 * The part's text will be empty.
 
-### **Error Handling**
+### Error Handling
 
 The processor provides detailed error information through metadata:
 
@@ -218,7 +218,7 @@ This example builds a URL content summarizer that:
 To run it, set your API key and try it:
 
 ```bash
-export GOOGLE_API_KEY=your_api_key_here
+export GEMINI_API_KEY=your_api_key_here
 python examples/url_content_summarizer.py
 ```
 

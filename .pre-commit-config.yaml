@@ -32,7 +32,7 @@ repos:
     rev: 3d44372123ca5e8617fdb65d9f11facd159b9e95  # frozen: v0.12.3
     hooks:
       - id: ruff
-        args: [ --fix, --exit-non-zero-on-fix ]
+        args: [ "--fix", "--exit-non-zero-on-fix" ]
 
   - repo: https://github.com/psf/black
     rev: 8a737e727ac5ab2f1d4cf5876720ed276dc8dc4b  # frozen: 25.1.0

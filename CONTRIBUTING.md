@@ -22,7 +22,7 @@ Thank you for your interest in contributing to genai-processors-url-fetch! This 
 2. **Install dependencies with uv**:
 
    ```bash
-   uv sync --dev
+   uv sync --all-groups
    ```
 
 3. **Install pre-commit hooks**:

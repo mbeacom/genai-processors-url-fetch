@@ -88,6 +88,7 @@ class UrlFetchProcessor(processor.PartProcessor):
         """
         self.config = config or FetchConfig()
         self._host_locks: dict[str, asyncio.Semaphore] = {}
+        self._host_locks_lock = asyncio.Lock()
 
     def match(self, part: processor.ProcessorPart) -> bool:
         """Determine if this part should be processed.
@@ -103,11 +104,12 @@ class UrlFetchProcessor(processor.PartProcessor):
 
     async def _get_host_semaphore(self, host: str) -> asyncio.Semaphore:
         """Return a semaphore to limit parallel fetches per host."""
-        if host not in self._host_locks:
-            self._host_locks[host] = asyncio.Semaphore(
-                self.config.max_concurrent_fetches_per_host,
-            )
-        return self._host_locks[host]
+        async with self._host_locks_lock:
+            if host not in self._host_locks:
+                self._host_locks[host] = asyncio.Semaphore(
+                    self.config.max_concurrent_fetches_per_host,
+                )
+            return self._host_locks[host]
 
     def _is_private_ip(self, ip_str: str) -> bool:
         """Check if an IP address is private or reserved."""
@@ -405,7 +407,7 @@ class UrlFetchProcessor(processor.PartProcessor):
         part: processor.ProcessorPart,
     ) -> AsyncIterable[processor.ProcessorPart]:
         """Fetch URLs found in the part and yield results."""
-        urls = set(URL_REGEX.findall(part.text or ""))
+        urls = list(dict.fromkeys(URL_REGEX.findall(part.text or "")))
 
         if not urls:
             # No URLs found, just pass through if configured to do so

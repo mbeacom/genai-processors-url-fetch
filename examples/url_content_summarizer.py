@@ -125,7 +125,6 @@ async def run_url_summarizer() -> None:
 
         fetched_count = 0
         summarized_count = 0
-        current_summary = ""
         in_summary = False
 
         async for part in pipeline(input_stream):
@@ -150,12 +149,10 @@ async def run_url_summarizer() -> None:
                     # Starting a new summary
                     in_summary = True
                     summarized_count += 1
-                    current_summary = part.text
                     print(f"\n📄 Summary #{summarized_count}:")
                     print(part.text, end="", flush=True)
                 else:
                     # Continuing the current summary
-                    current_summary += part.text
                     print(part.text, end="", flush=True)
 
         # Finish the last summary if we were in one
