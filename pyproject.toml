@@ -79,11 +79,11 @@ packages = ["genai_processors_url_fetch"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "/genai_processors_url_fetch",
-    "/examples",
-    "/README.md",
-    "/LICENSE",
-    "/pyproject.toml",
+    "genai_processors_url_fetch",
+    "examples",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
 ]
 
 [tool.pytest.ini_options]

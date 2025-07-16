@@ -1,6 +1,6 @@
 # genai-processors-url-fetch
 
-The URL Fetch Gemini Processor to be used with Gemini's genai-processors.
+A URL Fetch Processor for Google's genai-processors framework that detects URLs in text, fetches their content concurrently, and yields new ProcessorParts containing the page content.
 
 ## UrlFetchProcessor
 
@@ -16,10 +16,16 @@ Many advanced AI applications, especially those involving Retrieval-Augmented Ge
 
 ### Installation
 
-The processor requires the httpx and beautifulsoup4 libraries. To use it, install the optional dependencies using the [url_fetcher] extra:
+Install the package using pip:
 
 ```bash
-pip install "genai_processors[url_fetcher]"
+pip install genai-processors-url-fetch
+```
+
+Or using uv (recommended):
+
+```bash
+uv add genai-processors-url-fetch
 ```
 
 ### Quick Start
@@ -218,7 +224,7 @@ python examples/url_content_summarizer.py
 
 #### Test Suite
 
-For comprehensive test coverage including security features, error handling, and all configuration options, see: `genai_processors/contrib/test/test_url_fetch.py`
+For comprehensive test coverage including security features, error handling, and all configuration options, see: `genai_processors_url_fetch/tests/test_url_fetch.py`
 
 The test suite includes:
 
@@ -235,3 +241,46 @@ The test suite includes:
 3. **Error Handling**: Handle both successful and failed fetches appropriately in your application logic
 4. **Rate Limiting**: Use the built-in per-host rate limiting to be respectful to target servers
 5. **Content Processing**: Choose between text extraction and raw HTML based on your downstream processing needs
+
+## Development
+
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management and development workflows.
+
+### Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/mbeacom/genai-processors-url-fetch.git
+cd genai-processors-url-fetch
+
+# Install dependencies
+uv sync --all-groups
+```
+
+### Running Tests
+
+```bash
+# Run all tests with coverage
+uv run poe test
+
+# Run specific tests
+uv run pytest genai_processors_url_fetch/tests/test_url_fetch.py -v
+```
+
+### Code Quality
+
+```bash
+# Run all checks
+uv run poe check
+
+# Auto-fix issues
+uv run poe fix
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.

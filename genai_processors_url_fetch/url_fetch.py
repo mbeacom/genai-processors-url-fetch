@@ -6,7 +6,7 @@ import re
 from collections.abc import AsyncIterable
 from dataclasses import dataclass, field
 from typing import Final, NamedTuple
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -132,6 +132,94 @@ class UrlFetchProcessor(processor.PartProcessor):
         }
         return host.lower() in metadata_hosts
 
+    def _validate_scheme_and_domain(
+        self,
+        parsed_url: ParseResult,
+    ) -> tuple[bool, str | None]:
+        """Validate URL scheme and domain restrictions."""
+        # Check scheme
+        if parsed_url.scheme not in self.config.allowed_schemes:
+            return False, f"Scheme '{parsed_url.scheme}' not allowed"
+
+        # Check domain allow/block lists
+        host = parsed_url.hostname or ""
+
+        if self.config.allowed_domains and not any(
+            host == domain or host.endswith(f".{domain}")
+            for domain in self.config.allowed_domains
+        ):
+            return False, f"Domain '{host}' not in allowed list"
+
+        if self.config.blocked_domains and any(
+            host == domain or host.endswith(f".{domain}")
+            for domain in self.config.blocked_domains
+        ):
+            return False, f"Domain '{host}' is blocked"
+
+        # Check metadata endpoints
+        if self.config.block_metadata_endpoints and self._is_metadata_endpoint(host):
+            return False, f"Metadata endpoint '{host}' is blocked"
+
+        return True, None
+
+    async def _validate_ip_restrictions(
+        self,
+        host: str,
+    ) -> tuple[bool, str | None]:
+        """Validate IP restrictions including DNS resolution."""
+        if not (self.config.block_private_ips or self.config.block_localhost):
+            return True, None
+
+        try:
+            # First check if it's already an IP address
+            if self._is_private_ip(host) and self.config.block_private_ips:
+                return False, f"Private IP '{host}' is blocked"
+
+            # Check localhost addresses specifically
+            localhost_addrs = ["localhost", "127.0.0.1", "::1"]
+            if self.config.block_localhost and host in localhost_addrs:
+                return False, f"Localhost '{host}' is blocked"
+
+            # If it's not an IP, resolve it to check IPs it points to
+            if not self._is_private_ip(host) and host not in localhost_addrs:
+                return await self._check_resolved_ips(host)
+
+        except (OSError, ValueError) as e:  # e.g., socket.gaierror
+            # If we can't resolve, be conservative and block
+            return (
+                False,
+                f"Unable to resolve hostname '{host}': {e}",
+            )
+
+        return True, None
+
+    async def _check_resolved_ips(self, host: str) -> tuple[bool, str | None]:
+        """Check resolved IP addresses for security violations."""
+        loop = asyncio.get_running_loop()
+        # Resolve hostname to IP addresses. getaddrinfo robust
+        addr_info = await loop.getaddrinfo(host, None)
+        resolved_ips = {addr[4][0] for addr in addr_info}
+
+        for ip_str in resolved_ips:
+            ip = ipaddress.ip_address(ip_str)
+            if self.config.block_private_ips and (
+                ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved
+            ):
+                return (
+                    False,
+                    f"Resolved IP '{ip_str}' for host "
+                    f"'{host}' is private and blocked.",
+                )
+            if self.config.block_localhost and ip.is_loopback:
+                return (
+                    False,
+                    f"Resolved IP '{ip_str}' for host "
+                    f"'{host}' is a loopback address and "
+                    "blocked.",
+                )
+
+        return True, None
+
     async def _validate_url(self, url: str) -> tuple[bool, str | None]:
         """Validate URL against security policies.
 
@@ -142,51 +230,14 @@ class UrlFetchProcessor(processor.PartProcessor):
         try:
             parsed = urlparse(url)
 
-            # Check scheme
-            if parsed.scheme not in self.config.allowed_schemes:
-                return False, f"Scheme '{parsed.scheme}' not allowed"
+            # Validate scheme and domain restrictions
+            is_valid, error = self._validate_scheme_and_domain(parsed)
+            if not is_valid:
+                return False, error
 
-            # Check domain allow/block lists
+            # Validate IP restrictions
             host = parsed.hostname or ""
-
-            if self.config.allowed_domains and not any(
-                host == domain or host.endswith(f".{domain}")
-                for domain in self.config.allowed_domains
-            ):
-                return False, f"Domain '{host}' not in allowed list"
-
-            if self.config.blocked_domains and any(
-                host == domain or host.endswith(f".{domain}")
-                for domain in self.config.blocked_domains
-            ):
-                return False, f"Domain '{host}' is blocked"
-
-            # Check metadata endpoints
-            if self.config.block_metadata_endpoints and self._is_metadata_endpoint(
-                host,
-            ):
-                return False, f"Metadata endpoint '{host}' is blocked"
-
-            # Check IP restrictions (resolve DNS if needed)
-            if self.config.block_private_ips or self.config.block_localhost:
-                try:
-                    # Check if it's already an IP address or hostname
-                    if (
-                        self._is_private_ip(host)  # Already an IP
-                        and self.config.block_private_ips
-                    ):
-                        return False, f"Private IP '{host}' is blocked"
-
-                    # Check localhost specifically
-                    localhost_addrs = ["localhost", "127.0.0.1", "::1"]
-                    if self.config.block_localhost and host in localhost_addrs:
-                        return False, f"Localhost '{host}' is blocked"
-
-                except (OSError, ValueError):
-                    # If we can't resolve, be conservative and block
-                    return False, f"Unable to resolve hostname '{host}'"
-
-            return True, None
+            return await self._validate_ip_restrictions(host)
 
         except (ValueError, TypeError) as e:
             return False, f"URL validation error: {str(e)}"
@@ -249,17 +300,21 @@ class UrlFetchProcessor(processor.PartProcessor):
                     )
 
                 # Read content with size limit
-                content_bytes = b""
+                chunks = []
+                total_size = 0
                 async for chunk in resp.aiter_bytes():
-                    content_bytes += chunk
-                    if len(content_bytes) > self.config.max_response_size:
+                    chunks.append(chunk)
+                    total_size += len(chunk)
+                    if total_size > self.config.max_response_size:
                         max_size = self.config.max_response_size
                         return FetchResult(
                             url=url,
                             ok=False,
                             content=None,
-                            error_message=f"Response exceeded {max_size} bytes",
+                            error_message=(f"Response exceeded {max_size} bytes"),
                         )
+
+                content_bytes = b"".join(chunks)
 
                 # Process content based on configuration
                 content_text = content_bytes.decode("utf-8", errors="replace")
@@ -360,12 +415,9 @@ class UrlFetchProcessor(processor.PartProcessor):
 
         headers = {"User-Agent": self.config.user_agent}
         async with httpx.AsyncClient(headers=headers) as client:
-            # Collect all results by fetching URLs sequentially
-            # This ensures compatibility across async backends
-            results = []
-            for url in urls:
-                result = await self._fetch_one(url, client)
-                results.append(result)
+            # Create tasks to fetch all URLs concurrently
+            tasks = [self._fetch_one(url, client) for url in urls]
+            results = await asyncio.gather(*tasks)
 
             # Process all results
             for result in results:

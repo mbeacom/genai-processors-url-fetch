@@ -69,7 +69,7 @@ Our pre-commit configuration includes:
 
 - **Run all tests**: `uv run pytest`
 - **Run with verbose output**: `uv run pytest -v`
-- **Run specific test**: `uv run pytest genai_processors_url_fetch/tests/test_validator.py::TestUrlFetch::test_successful_validation`
+- **Run specific test**: `uv run pytest genai_processors_url_fetch/tests/test_url_fetch.py::TestUrlFetchProcessor::test_successful_fetch_with_mocking`
 - **Run with coverage**: `uv run pytest --cov=genai_processors_url_fetch`
 
 ### Code Formatting and Linting

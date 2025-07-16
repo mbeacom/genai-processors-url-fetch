@@ -333,7 +333,11 @@ class TestUrlFetchProcessor:
     @pytest.mark.anyio
     async def test_domain_allowlist(self) -> None:
         """Test domain allow list functionality."""
-        config = FetchConfig(allowed_domains=["example.com", "trusted.org"])
+        config = FetchConfig(
+            allowed_domains=["example.com", "trusted.org"],
+            block_private_ips=False,
+            block_localhost=False,
+        )
         p = UrlFetchProcessor(config)
 
         # Allowed domain should pass
