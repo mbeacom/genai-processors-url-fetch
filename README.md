@@ -27,10 +27,18 @@ Install the package using pip:
 pip install genai-processors-url-fetch
 ```
 
+For enhanced content processing with markitdown support:
+
+```bash
+pip install genai-processors-url-fetch[markitdown]
+```
+
 Or using uv (recommended):
 
 ```bash
 uv add genai-processors-url-fetch
+# or with markitdown support
+uv add genai-processors-url-fetch[markitdown]
 ```
 
 ### Quick Start
@@ -39,8 +47,12 @@ uv add genai-processors-url-fetch
 from genai_processors import processor
 from genai_processors_url_fetch import UrlFetchProcessor, FetchConfig
 
-# Basic usage with defaults
+# Basic usage with defaults (BeautifulSoup text extraction)
 fetcher = UrlFetchProcessor()
+
+# Use markitdown for richer content processing
+config = FetchConfig(content_processor="markitdown")
+markitdown_fetcher = UrlFetchProcessor(config)
 
 # Process text containing URLs
 input_text = "Check out https://developers.googleblog.com/en/genai-processors/ for more information"
@@ -92,7 +104,12 @@ The `FetchConfig` dataclass provides comprehensive configuration options organiz
 * **user_agent** (str, default: "GenAI-Processors/UrlFetchProcessor"): The User-Agent string to send with HTTP requests.
 * **include_original_part** (bool, default: True): If True, the original ProcessorPart that contained the URL(s) will be yielded at the end of processing.
 * **fail_on_error** (bool, default: False): If True, the processor will raise a RuntimeError on the first failed fetch.
-* **extract_text_only** (bool, default: True): If True, the processor will parse the HTML and return only the clean, readable text. If False, it will return the full, raw HTML content.
+* **content_processor** (Literal["beautifulsoup", "markitdown", "raw"], default: "beautifulsoup"): Content processing method.
+  - `"beautifulsoup"`: Extract clean text using BeautifulSoup (fastest, good for simple HTML)
+  - `"markitdown"`: Convert content to markdown using Microsoft's markitdown library (best for rich content, requires optional dependency)
+  - `"raw"`: Return the raw HTML content without processing
+* **markitdown_options** (dict[str, Any], default: {}): Options passed to the markitdown MarkItDown constructor when using markitdown processor.
+* **extract_text_only** (bool | None, default: None): **Deprecated.** Use `content_processor` instead. For backward compatibility: `True` maps to `"beautifulsoup"`, `False` maps to `"raw"`.
 
 ##### Security Controls
 
@@ -103,6 +120,60 @@ The `FetchConfig` dataclass provides comprehensive configuration options organiz
 * **blocked_domains** (list[str] | None, default: None): If set, any URL matching a domain in this list (or its subdomains) will be blocked.
 * **allowed_schemes** (list[str], default: ['http', 'https']): A list of allowed URL schemes.
 * **max_response_size** (int, default: 10485760): The maximum size of the response body in bytes (10MB).
+
+### Content Processing Options
+
+The UrlFetchProcessor supports three content processing methods via the `content_processor` configuration:
+
+#### BeautifulSoup (Default)
+
+```python
+config = FetchConfig(content_processor="beautifulsoup")
+fetcher = UrlFetchProcessor(config)
+# Returns: Clean text extracted from HTML, fastest processing
+# Mimetype: "text/plain; charset=utf-8"
+```
+
+#### Markitdown (Rich Content Processing)
+
+The markitdown processor provides the richest content extraction by converting HTML to structured markdown. It's ideal for preserving formatting, tables, links, and document structure.
+
+```python
+config = FetchConfig(
+    content_processor="markitdown",
+    markitdown_options={
+        "extract_tables": True,     # Preserve table structure
+        "preserve_links": True,     # Keep link formatting
+        # Additional markitdown options can be specified here
+    }
+)
+fetcher = UrlFetchProcessor(config)
+# Returns: Rich markdown with preserved formatting, tables, links
+# Mimetype: "text/markdown; charset=utf-8"
+# Requires: pip install genai-processors-url-fetch[markitdown]
+```
+
+**When to use markitdown:**
+
+* Processing documentation pages or wikis
+* Extracting structured content with tables and lists
+* Preserving links and formatting for downstream processing
+* Working with rich content that benefits from markdown structure
+
+**Comparison with other processors:**
+
+* **BeautifulSoup**: Fast text extraction, loses formatting
+* **Markitdown**: Rich markdown, preserves structure, slower processing
+* **Raw**: Full HTML control, requires custom parsing
+
+#### Raw HTML
+
+```python
+config = FetchConfig(content_processor="raw")
+fetcher = UrlFetchProcessor(config)
+# Returns: Original HTML content without processing
+# Mimetype: "text/html; charset=utf-8"
+```
 
 ### Usage Examples
 
@@ -152,6 +223,37 @@ for content_part in successful_content:
     source_url = content_part.metadata["source_url"]
     text_content = content_part.text
     # ... your processing logic here
+```
+
+#### Markitdown Processing Example
+
+```python
+from genai_processors import streams
+from genai_processors_url_fetch import UrlFetchProcessor, FetchConfig
+
+# Configure markitdown processor for rich content extraction
+config = FetchConfig(
+    content_processor="markitdown",
+    include_original_part=False,
+    markitdown_options={
+        "extract_tables": True,
+        "preserve_links": True,
+    }
+)
+
+processor = UrlFetchProcessor(config)
+
+# Process URLs in text
+text_with_urls = "Check out https://github.com/microsoft/markitdown for examples"
+input_stream = streams.stream_content([text_with_urls])
+
+async for part in processor(input_stream):
+    if part.metadata.get("fetch_status") == "success":
+        print(f"📄 Fetched from: {part.metadata['source_url']}")
+        print(f"📝 Markdown content:\n{part.text}")
+        print(f"✨ Content type: {part.mimetype}")
+    elif part.substream_name == "status":
+        print(f"Status: {part.text}")
 ```
 
 ### Behavior and Output
@@ -204,14 +306,11 @@ async for part in fetcher.call(input_part):
 
 ### Examples and Testing
 
-#### Working Example
+#### Working Examples
 
-For a complete, runnable example that demonstrates the UrlFetchProcessor in a real application, see:
+For complete, runnable examples that demonstrate the UrlFetchProcessor, see:
 
-```bash
-examples/url_content_summarizer.py
-```
-
+**URL Content Summarizer** (`examples/url_content_summarizer.py`):
 This example builds a URL content summarizer that:
 
 * Fetches content from URLs in user input
@@ -220,11 +319,24 @@ This example builds a URL content summarizer that:
 * Shows proper error handling and pipeline construction
 * Provides a practical CLI interface
 
-To run it, set your API key and try it:
+**Markitdown Content Processing** (`examples/markitdown_example.py`):
+This example demonstrates markitdown processor capabilities:
+
+* Shows different content processor options (BeautifulSoup, Markitdown, Raw)
+* Compares output formats and use cases
+* Demonstrates markitdown configuration options
+* Shows how to handle different content types
+
+To run the examples:
 
 ```bash
+# Content summarizer (requires API key)
 export GEMINI_API_KEY=your_api_key_here
 python examples/url_content_summarizer.py
+
+# Markitdown demo (requires markitdown optional dependency)
+pip install genai-processors-url-fetch[markitdown]
+python examples/markitdown_example.py
 ```
 
 #### Test Suite
