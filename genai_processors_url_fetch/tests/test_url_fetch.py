@@ -199,10 +199,10 @@ class TestUrlFetchProcessor:
                     pass
 
     @pytest.mark.anyio
-    async def test_extract_text_only_config(self) -> None:
-        """Test the extract_text_only configuration option."""
+    async def test_content_processor_raw_config(self) -> None:
+        """Test the content_processor='raw' configuration option."""
         config = FetchConfig(
-            extract_text_only=False,
+            content_processor="raw",
             include_original_part=False,
         )
         p = UrlFetchProcessor(config)
@@ -243,19 +243,36 @@ class TestUrlFetchProcessor:
         assert config.timeout == 15.0
         assert config.include_original_part is True
         assert config.fail_on_error is False
-        assert config.extract_text_only is True
+        assert config.content_processor == "beautifulsoup"
+        assert config.extract_text_only is None  # deprecated field
 
         # Custom config
         config = FetchConfig(
             timeout=30.0,
             include_original_part=False,
             fail_on_error=True,
-            extract_text_only=False,
+            content_processor="raw",
         )
         assert config.timeout == 30.0
         assert config.include_original_part is False
         assert config.fail_on_error is True
-        assert config.extract_text_only is False
+        assert config.content_processor == "raw"
+
+    def test_backward_compatibility_extract_text_only(self) -> None:
+        """Test backward compatibility for extract_text_only parameter."""
+        import warnings
+
+        # Test extract_text_only=True maps to beautifulsoup
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            config1 = FetchConfig(extract_text_only=True)
+            assert config1.content_processor == "beautifulsoup"
+
+        # Test extract_text_only=False maps to raw
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            config2 = FetchConfig(extract_text_only=False)
+            assert config2.content_processor == "raw"
 
     def test_processor_initialization(self) -> None:
         """Test UrlFetchProcessor initialization."""
@@ -437,3 +454,122 @@ class TestUrlFetchProcessor:
         assert len(failure_parts) == 1
         error_msg = failure_parts[0].metadata["fetch_error"]
         assert "Security validation failed" in error_msg
+
+    @pytest.mark.anyio
+    async def test_create_success_part_validation_errors(self) -> None:
+        """Test _create_success_part validation error conditions."""
+        p = UrlFetchProcessor()
+        original_part = processor.ProcessorPart("test")
+
+        # Test with None content
+        from genai_processors_url_fetch.url_fetch import FetchResult
+
+        result_none_content = FetchResult(
+            url="http://test.com",
+            ok=True,
+            content=None,
+            mimetype="text/plain",
+            error_message=None,
+        )
+
+        with pytest.raises(ValueError, match="Content is None"):
+            await p._create_success_part(result_none_content, original_part)
+
+        # Test with None mimetype
+        result_none_mimetype = FetchResult(
+            url="http://test.com",
+            ok=True,
+            content="test content",
+            mimetype=None,
+            error_message=None,
+        )
+
+        with pytest.raises(ValueError, match="Mimetype is None"):
+            await p._create_success_part(result_none_mimetype, original_part)
+
+    @pytest.mark.anyio
+    async def test_dns_resolution_error_handling(self) -> None:
+        """Test DNS resolution error handling."""
+        p = UrlFetchProcessor()
+
+        # Mock getaddrinfo to raise an OSError (DNS resolution failure)
+        with patch("asyncio.get_running_loop") as mock_loop:
+            error_msg = "DNS failed"
+            mock_loop.return_value.getaddrinfo.side_effect = OSError(error_msg)
+
+            is_valid, error = await p._validate_ip_restrictions(
+                "nonexistent.domain",
+            )
+            assert not is_valid
+            assert error is not None
+            assert "Unable to resolve hostname" in error
+            assert "DNS failed" in error
+
+    @pytest.mark.anyio
+    async def test_response_size_limits(self) -> None:
+        """Test response size limiting functionality."""
+        config = FetchConfig(
+            max_response_size=10,  # Very small limit
+            include_original_part=False,
+        )
+        p = UrlFetchProcessor(config)
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_context = mock_client_class.return_value.__aenter__
+            mock_context.return_value = mock_client
+
+            # Mock response with large content-length header
+            mock_response = MagicMock()
+            mock_response.headers = {"content-length": "100"}  # Exceeds limit
+            mock_response.raise_for_status.return_value = None
+
+            mock_client.get.return_value = mock_response
+
+            part = processor.ProcessorPart("Visit https://example.com")
+            results = [r async for r in p.call(part)]
+
+            # Should have failure parts due to size limit
+            failure_parts = [
+                r for r in results if r.metadata.get("fetch_status") == "failure"
+            ]
+            assert len(failure_parts) == 1
+            error_msg = failure_parts[0].metadata["fetch_error"]
+            assert "Response too large" in error_msg
+
+    @pytest.mark.anyio
+    async def test_streaming_response_size_exceeded(self) -> None:
+        """Test response size limiting during streaming."""
+        config = FetchConfig(
+            max_response_size=5,  # Very small limit
+            include_original_part=False,
+        )
+        p = UrlFetchProcessor(config)
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_context = mock_client_class.return_value.__aenter__
+            mock_context.return_value = mock_client
+
+            # Mock response without content-length header
+            mock_response = MagicMock()
+            mock_response.headers = {}  # No content-length
+            mock_response.raise_for_status.return_value = None
+
+            # Mock aiter_bytes to return data that exceeds limit
+            async def mock_aiter_bytes() -> AsyncIterable[bytes]:
+                yield b"1234567890"  # Exceeds 5 byte limit
+
+            mock_response.aiter_bytes = mock_aiter_bytes
+            mock_client.get.return_value = mock_response
+
+            part = processor.ProcessorPart("Visit https://example.com")
+            results = [r async for r in p.call(part)]
+
+            # Should have failure parts due to size limit during streaming
+            failure_parts = [
+                r for r in results if r.metadata.get("fetch_status") == "failure"
+            ]
+            assert len(failure_parts) == 1
+            error_msg = failure_parts[0].metadata["fetch_error"]
+            assert "Response exceeded" in error_msg

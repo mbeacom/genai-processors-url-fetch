@@ -1,16 +1,21 @@
 """Processor that fetches URLs found in text and returns the page content."""
 
 import asyncio
+import importlib.util
 import ipaddress
 import re
+import warnings
 from collections.abc import AsyncIterable
 from dataclasses import dataclass, field
-from typing import Final, NamedTuple
+from typing import Any, Final, Literal, NamedTuple
 from urllib.parse import ParseResult, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 from genai_processors import processor
+
+# Check markitdown availability
+HAS_MARKITDOWN = importlib.util.find_spec("markitdown") is not None
 
 __all__ = ["UrlFetchProcessor", "FetchConfig"]
 
@@ -30,7 +35,13 @@ class FetchConfig:
     user_agent: str = "GenAI-Processors/UrlFetchProcessor"  # User-Agent header
     include_original_part: bool = True  # Yield original part after processing
     fail_on_error: bool = False  # Raise exception on first fetch failure
-    extract_text_only: bool = True  # Convert HTML to text vs return raw HTML
+
+    # Content processing options
+    content_processor: Literal["beautifulsoup", "markitdown", "raw"] = "beautifulsoup"
+    markitdown_options: dict[str, Any] = field(default_factory=dict)
+
+    # Deprecated - for backward compatibility
+    extract_text_only: bool | None = None  # Use content_processor instead
 
     # Security controls
     block_private_ips: bool = True  # Block private IP ranges (RFC 1918)
@@ -43,6 +54,30 @@ class FetchConfig:
     )
     max_response_size: int = 10 * 1024 * 1024  # Max response size (10MB)
 
+    def __post_init__(self) -> None:
+        """Handle backward compatibility and validation."""
+        # Handle deprecated extract_text_only parameter
+        if self.extract_text_only is not None:
+            warnings.warn(
+                "extract_text_only is deprecated. Use content_processor instead. "
+                "extract_text_only=True maps to content_processor='beautifulsoup', "
+                "extract_text_only=False maps to content_processor='raw'.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if self.content_processor == "beautifulsoup":  # Default wasn't changed
+                self.content_processor = (
+                    "beautifulsoup" if self.extract_text_only else "raw"
+                )
+
+        # Validate markitdown availability
+        if self.content_processor == "markitdown" and not HAS_MARKITDOWN:
+            msg = (
+                "markitdown is required for content_processor='markitdown'. "
+                "Install with: pip install genai-processors-url-fetch[markitdown]"
+            )
+            raise ImportError(msg)
+
 
 class FetchResult(NamedTuple):
     """Represents the outcome of a fetch operation."""
@@ -50,6 +85,7 @@ class FetchResult(NamedTuple):
     url: str
     ok: bool
     content: str | None
+    mimetype: str | None
     error_message: str | None
 
 
@@ -245,8 +281,8 @@ class UrlFetchProcessor(processor.PartProcessor):
             return False, f"URL validation error: {str(e)}"
 
     @staticmethod
-    def _html_to_text(html: str) -> str:
-        """Convert raw HTML to plain text with basic whitespace collapse."""
+    def _beautifulsoup_to_text(html: str) -> str:
+        """Convert raw HTML to plain text using BeautifulSoup."""
         soup = BeautifulSoup(html, "html.parser")
         for tag in soup(
             [
@@ -261,6 +297,67 @@ class UrlFetchProcessor(processor.PartProcessor):
             tag.decompose()
         return " ".join(soup.get_text(separator=" ").split())
 
+    def _markitdown_to_text(self, content: str, url: str) -> str:
+        """Convert content to markdown using markitdown."""
+        if not HAS_MARKITDOWN:
+            msg = (
+                "markitdown is required but not installed. "
+                "Install with: pip install genai-processors-url-fetch[markitdown]"
+            )
+            raise ImportError(msg)
+
+        # Import required modules
+        from io import BytesIO
+
+        from markitdown import MarkItDown, StreamInfo  # noqa: PLC0415
+
+        # Create MarkItDown instance with user options
+        markitdown_converter = MarkItDown(**self.config.markitdown_options)
+
+        # Create StreamInfo with URL context for better conversion
+        content_stream = BytesIO(content.encode("utf-8"))
+        stream_info = StreamInfo(
+            url=url,
+            extension=".html",
+            mimetype="text/html; charset=utf-8",
+        )
+
+        # Use markitdown to convert the content with URL context
+        result = markitdown_converter.convert_stream(
+            content_stream,
+            stream_info=stream_info,
+        )
+        return result.text_content
+
+    async def _process_content(
+        self,
+        content: str,
+        url: str,
+    ) -> tuple[str, str]:
+        """Process content according to configuration.
+
+        Returns:
+            Tuple of (processed_content, mimetype)
+
+        """
+        if self.config.content_processor == "raw":
+            return content, "text/html; charset=utf-8"
+        if self.config.content_processor == "beautifulsoup":
+            processed = await asyncio.to_thread(
+                self._beautifulsoup_to_text,
+                content,
+            )
+            return processed, "text/plain; charset=utf-8"
+        if self.config.content_processor == "markitdown":
+            processed = await asyncio.to_thread(
+                self._markitdown_to_text,
+                content,
+                url,
+            )
+            return processed, "text/markdown; charset=utf-8"
+        msg = f"Unknown content_processor: {self.config.content_processor}"
+        raise ValueError(msg)
+
     async def _fetch_one(
         self,
         url: str,
@@ -274,6 +371,7 @@ class UrlFetchProcessor(processor.PartProcessor):
                 url=url,
                 ok=False,
                 content=None,
+                mimetype=None,
                 error_message=f"Security validation failed: {error_msg}",
             )
 
@@ -294,11 +392,13 @@ class UrlFetchProcessor(processor.PartProcessor):
                     content_length
                     and int(content_length) > self.config.max_response_size
                 ):
+                    error_msg = f"Response too large: {content_length} bytes"
                     return FetchResult(
                         url=url,
                         ok=False,
                         content=None,
-                        error_message=(f"Response too large: {content_length} bytes"),
+                        mimetype=None,
+                        error_message=error_msg,
                     )
 
                 # Read content with size limit
@@ -309,45 +409,49 @@ class UrlFetchProcessor(processor.PartProcessor):
                     total_size += len(chunk)
                     if total_size > self.config.max_response_size:
                         max_size = self.config.max_response_size
+                        error_msg = f"Response exceeded {max_size} bytes"
                         return FetchResult(
                             url=url,
                             ok=False,
                             content=None,
-                            error_message=(f"Response exceeded {max_size} bytes"),
+                            mimetype=None,
+                            error_message=error_msg,
                         )
 
                 content_bytes = b"".join(chunks)
 
                 # Process content based on configuration
                 content_text = content_bytes.decode("utf-8", errors="replace")
-                if self.config.extract_text_only:
-                    content = await asyncio.to_thread(
-                        self._html_to_text,
-                        content_text,
-                    )
-                else:
-                    content = content_text
+                content_result = await self._process_content(content_text, url)
+                processed_content, content_mimetype = content_result
 
                 return FetchResult(
                     url=url,
                     ok=True,
-                    content=content,
+                    content=processed_content,
+                    mimetype=content_mimetype,
                     error_message=None,
                 )
         except httpx.HTTPStatusError as e:
-            error_msg = f"HTTP Error: {e.response.status_code} for URL: {e.request.url}"
+            status_code = e.response.status_code
+            request_url = e.request.url
+            error_msg = f"HTTP Error: {status_code} for URL: {request_url}"
             return FetchResult(
                 url=url,
                 ok=False,
                 content=None,
+                mimetype=None,
                 error_message=error_msg,
             )
         except httpx.RequestError as e:
-            error_msg = f"Request Error: {type(e).__name__} for URL: {e.request.url}"
+            error_type = type(e).__name__
+            request_url = e.request.url
+            error_msg = f"Request Error: {error_type} for URL: {request_url}"
             return FetchResult(
                 url=url,
                 ok=False,
                 content=None,
+                mimetype=None,
                 error_message=error_msg,
             )
         except UnicodeDecodeError:
@@ -356,6 +460,7 @@ class UrlFetchProcessor(processor.PartProcessor):
                 url=url,
                 ok=False,
                 content=None,
+                mimetype=None,
                 error_message=error_msg,
             )
 
@@ -365,19 +470,17 @@ class UrlFetchProcessor(processor.PartProcessor):
         original_part: processor.ProcessorPart,
     ) -> processor.ProcessorPart:
         """Create a ProcessorPart for a successful fetch."""
-        mimetype = (
-            "text/plain; charset=utf-8"
-            if self.config.extract_text_only
-            else "text/html; charset=utf-8"
-        )
-
         if result.content is None:
             msg = f"Content is None for successful fetch of {result.url}"
             raise ValueError(msg)
 
+        if result.mimetype is None:
+            msg = f"Mimetype is None for successful fetch of {result.url}"
+            raise ValueError(msg)
+
         return processor.ProcessorPart(
             result.content,
-            mimetype=mimetype,
+            mimetype=result.mimetype,
             metadata={
                 **original_part.metadata,
                 "source_url": result.url,
