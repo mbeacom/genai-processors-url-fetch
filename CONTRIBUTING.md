@@ -317,8 +317,8 @@ genai-processors-url-fetch/
 
 Releases are automated via GitHub Actions:
 
-1. **Create a tag**: `git tag v0.1.0`
-2. **Push tag**: `git push origin v0.1.0`
+1. **Create a tag**: `git tag 0.1.0`
+2. **Push tag**: `git push origin 0.1.0`
 3. **GitHub Actions** automatically:
    - Builds the package
    - Runs full test suite
