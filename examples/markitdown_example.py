@@ -9,7 +9,7 @@ import asyncio
 
 from genai_processors import processor
 
-from genai_processors_url_fetch import FetchConfig, UrlFetchProcessor
+from genai_processors_url_fetch import ContentProcessor, FetchConfig, UrlFetchProcessor
 
 
 async def main() -> None:
@@ -22,7 +22,7 @@ async def main() -> None:
 
     # Configure with markitdown processor
     config = FetchConfig(
-        content_processor="markitdown",
+        content_processor=ContentProcessor.MARKITDOWN,
         include_original_part=False,
         timeout=10.0,
         markitdown_options={

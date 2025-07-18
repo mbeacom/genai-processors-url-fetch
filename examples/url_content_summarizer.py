@@ -32,7 +32,11 @@ from genai_processors import content_api, processor, streams
 from genai_processors.core import genai_model
 from google.genai import types as genai_types
 
-from genai_processors_url_fetch.url_fetch import FetchConfig, UrlFetchProcessor
+from genai_processors_url_fetch.url_fetch import (
+    ContentProcessor,
+    FetchConfig,
+    UrlFetchProcessor,
+)
 
 # Get API key from environment
 API_KEY = os.environ.get("GEMINI_API_KEY", "")
@@ -77,7 +81,7 @@ async def run_url_summarizer() -> None:
         timeout=10.0,
         max_response_size=2 * 1024 * 1024,  # 2MB limit
         include_original_part=False,  # Only show fetched content
-        extract_text_only=True,  # Convert HTML to text
+        content_processor=ContentProcessor.BEAUTIFULSOUP,  # Extract clean text
         # Security: Only allow HTTPS and block private IPs
         allowed_schemes=["https"],
         block_private_ips=True,
