@@ -7,7 +7,8 @@ import re
 import warnings
 from collections.abc import AsyncIterable
 from dataclasses import dataclass, field
-from typing import Any, Final, Literal, NamedTuple
+from enum import Enum
+from typing import Any, Final, NamedTuple
 from urllib.parse import ParseResult, urlparse
 
 import httpx
@@ -17,12 +18,20 @@ from genai_processors import processor
 # Check markitdown availability
 HAS_MARKITDOWN = importlib.util.find_spec("markitdown") is not None
 
-__all__ = ["UrlFetchProcessor", "FetchConfig"]
+__all__ = ["UrlFetchProcessor", "FetchConfig", "ContentProcessor"]
 
 URL_REGEX: Final[re.Pattern[str]] = re.compile(
     r"""https?://[^\s<>"'\u200B]+""",
     re.IGNORECASE,
 )
+
+
+class ContentProcessor(Enum):
+    """Content processor types for handling fetched content."""
+
+    BEAUTIFULSOUP = "beautifulsoup"
+    MARKITDOWN = "markitdown"
+    RAW = "raw"
 
 
 @dataclass
@@ -37,7 +46,7 @@ class FetchConfig:
     fail_on_error: bool = False  # Raise exception on first fetch failure
 
     # Content processing options
-    content_processor: Literal["beautifulsoup", "markitdown", "raw"] = "beautifulsoup"
+    content_processor: ContentProcessor = ContentProcessor.BEAUTIFULSOUP
     markitdown_options: dict[str, Any] = field(default_factory=dict)
 
     # Deprecated - for backward compatibility
@@ -56,24 +65,39 @@ class FetchConfig:
 
     def __post_init__(self) -> None:
         """Handle backward compatibility and validation."""
+        # Convert string content_processor to enum if needed
+        if isinstance(self.content_processor, str):
+            try:
+                self.content_processor = ContentProcessor(self.content_processor)
+            except ValueError as e:
+                valid_values = ", ".join(f"'{item.value}'" for item in ContentProcessor)
+                msg = (
+                    f"Invalid content_processor '{self.content_processor}'. "
+                    f"Valid values are: {valid_values}."
+                )
+                raise ValueError(msg) from e
+
         # Handle deprecated extract_text_only parameter
         if self.extract_text_only is not None:
             warnings.warn(
                 "extract_text_only is deprecated. Use content_processor instead. "
-                "extract_text_only=True maps to content_processor='beautifulsoup', "
-                "extract_text_only=False maps to content_processor='raw'.",
+                "extract_text_only=True maps to ContentProcessor.BEAUTIFULSOUP, "
+                "extract_text_only=False maps to ContentProcessor.RAW.",
                 DeprecationWarning,
                 stacklevel=2,
             )
-            if self.content_processor == "beautifulsoup":  # Default wasn't changed
+            # Only override if still at default
+            if self.content_processor == ContentProcessor.BEAUTIFULSOUP:
                 self.content_processor = (
-                    "beautifulsoup" if self.extract_text_only else "raw"
+                    ContentProcessor.BEAUTIFULSOUP
+                    if self.extract_text_only
+                    else ContentProcessor.RAW
                 )
 
         # Validate markitdown availability
-        if self.content_processor == "markitdown" and not HAS_MARKITDOWN:
+        if self.content_processor == ContentProcessor.MARKITDOWN and not HAS_MARKITDOWN:
             msg = (
-                "markitdown is required for content_processor='markitdown'. "
+                "markitdown is required for ContentProcessor.MARKITDOWN. "
                 "Install with: pip install genai-processors-url-fetch[markitdown]"
             )
             raise ImportError(msg)
@@ -99,7 +123,11 @@ class UrlFetchProcessor(processor.PartProcessor):
 
     Example:
         ```python
-        from genai_processors_url_fetch import UrlFetchProcessor, FetchConfig
+        from genai_processors_url_fetch import (
+            UrlFetchProcessor,
+            FetchConfig,
+            ContentProcessor
+        )
 
         # Basic URL fetcher
         fetcher = UrlFetchProcessor()
@@ -108,7 +136,7 @@ class UrlFetchProcessor(processor.PartProcessor):
         config = FetchConfig(
             timeout=30.0,
             fail_on_error=True,
-            extract_text_only=False  # Keep HTML
+            content_processor=ContentProcessor.RAW  # Keep HTML
         )
         strict_fetcher = UrlFetchProcessor(config)
         ```
@@ -340,15 +368,15 @@ class UrlFetchProcessor(processor.PartProcessor):
             Tuple of (processed_content, mimetype)
 
         """
-        if self.config.content_processor == "raw":
+        if self.config.content_processor == ContentProcessor.RAW:
             return content, "text/html; charset=utf-8"
-        if self.config.content_processor == "beautifulsoup":
+        if self.config.content_processor == ContentProcessor.BEAUTIFULSOUP:
             processed = await asyncio.to_thread(
                 self._beautifulsoup_to_text,
                 content,
             )
             return processed, "text/plain; charset=utf-8"
-        if self.config.content_processor == "markitdown":
+        if self.config.content_processor == ContentProcessor.MARKITDOWN:
             processed = await asyncio.to_thread(
                 self._markitdown_to_text,
                 content,

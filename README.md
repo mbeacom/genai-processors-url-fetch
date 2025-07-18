@@ -45,13 +45,13 @@ uv add genai-processors-url-fetch[markitdown]
 
 ```python
 from genai_processors import processor
-from genai_processors_url_fetch import UrlFetchProcessor, FetchConfig
+from genai_processors_url_fetch import UrlFetchProcessor, FetchConfig, ContentProcessor
 
 # Basic usage with defaults (BeautifulSoup text extraction)
 fetcher = UrlFetchProcessor()
 
 # Use markitdown for richer content processing
-config = FetchConfig(content_processor="markitdown")
+config = FetchConfig(content_processor=ContentProcessor.MARKITDOWN)
 markitdown_fetcher = UrlFetchProcessor(config)
 
 # Process text containing URLs
@@ -81,7 +81,7 @@ All security features are enabled by default but can be configured via the Fetch
 The processor uses a dataclass-based configuration system for clean, type-safe settings. You can customize the processor's behavior by passing a FetchConfig object during initialization.
 
 ```python
-from genai_processors_url_fetch import UrlFetchProcessor, FetchConfig
+from genai_processors_url_fetch import UrlFetchProcessor, FetchConfig, ContentProcessor
 
 # Example of a customized security configuration
 config = FetchConfig(
@@ -104,12 +104,13 @@ The `FetchConfig` dataclass provides comprehensive configuration options organiz
 * **user_agent** (str, default: "GenAI-Processors/UrlFetchProcessor"): The User-Agent string to send with HTTP requests.
 * **include_original_part** (bool, default: True): If True, the original ProcessorPart that contained the URL(s) will be yielded at the end of processing.
 * **fail_on_error** (bool, default: False): If True, the processor will raise a RuntimeError on the first failed fetch.
-* **content_processor** (Literal["beautifulsoup", "markitdown", "raw"], default: "beautifulsoup"): Content processing method.
-  - `"beautifulsoup"`: Extract clean text using BeautifulSoup (fastest, good for simple HTML)
-  - `"markitdown"`: Convert content to markdown using Microsoft's markitdown library (best for rich content, requires optional dependency)
-  - `"raw"`: Return the raw HTML content without processing
+* **content_processor** (ContentProcessor, default: ContentProcessor.BEAUTIFULSOUP): Content processing method.
+  * `ContentProcessor.BEAUTIFULSOUP`: Extract clean text using BeautifulSoup (fastest, good for simple HTML)
+  * `ContentProcessor.MARKITDOWN`: Convert content to markdown using Microsoft's markitdown library (best for rich content, requires optional dependency)
+  * `ContentProcessor.RAW`: Return the raw HTML content without processing
+  * **Note:** String values ("beautifulsoup", "markitdown", "raw") are automatically converted to enum values for backward compatibility.
 * **markitdown_options** (dict[str, Any], default: {}): Options passed to the markitdown MarkItDown constructor when using markitdown processor.
-* **extract_text_only** (bool | None, default: None): **Deprecated.** Use `content_processor` instead. For backward compatibility: `True` maps to `"beautifulsoup"`, `False` maps to `"raw"`.
+* **extract_text_only** (bool | None, default: None): **Deprecated.** Use `content_processor` instead. For backward compatibility: `True` maps to `ContentProcessor.BEAUTIFULSOUP`, `False` maps to `ContentProcessor.RAW`.
 
 ##### Security Controls
 
@@ -128,7 +129,7 @@ The UrlFetchProcessor supports three content processing methods via the `content
 #### BeautifulSoup (Default)
 
 ```python
-config = FetchConfig(content_processor="beautifulsoup")
+config = FetchConfig(content_processor=ContentProcessor.BEAUTIFULSOUP)
 fetcher = UrlFetchProcessor(config)
 # Returns: Clean text extracted from HTML, fastest processing
 # Mimetype: "text/plain; charset=utf-8"
@@ -140,7 +141,7 @@ The markitdown processor provides the richest content extraction by converting H
 
 ```python
 config = FetchConfig(
-    content_processor="markitdown",
+    content_processor=ContentProcessor.MARKITDOWN,
     markitdown_options={
         "extract_tables": True,     # Preserve table structure
         "preserve_links": True,     # Keep link formatting
@@ -169,7 +170,7 @@ fetcher = UrlFetchProcessor(config)
 #### Raw HTML
 
 ```python
-config = FetchConfig(content_processor="raw")
+config = FetchConfig(content_processor=ContentProcessor.RAW)
 fetcher = UrlFetchProcessor(config)
 # Returns: Original HTML content without processing
 # Mimetype: "text/html; charset=utf-8"
@@ -229,11 +230,11 @@ for content_part in successful_content:
 
 ```python
 from genai_processors import streams
-from genai_processors_url_fetch import UrlFetchProcessor, FetchConfig
+from genai_processors_url_fetch import UrlFetchProcessor, FetchConfig, ContentProcessor
 
 # Configure markitdown processor for rich content extraction
 config = FetchConfig(
-    content_processor="markitdown",
+    content_processor=ContentProcessor.MARKITDOWN,
     include_original_part=False,
     markitdown_options={
         "extract_tables": True,

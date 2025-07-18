@@ -9,6 +9,7 @@ from genai_processors import processor
 
 from genai_processors_url_fetch.url_fetch import (
     URL_REGEX,
+    ContentProcessor,
     FetchConfig,
     UrlFetchProcessor,
 )
@@ -200,9 +201,9 @@ class TestUrlFetchProcessor:
 
     @pytest.mark.anyio
     async def test_content_processor_raw_config(self) -> None:
-        """Test the content_processor='raw' configuration option."""
+        """Test the content_processor=ContentProcessor.RAW configuration option."""
         config = FetchConfig(
-            content_processor="raw",
+            content_processor=ContentProcessor.RAW,
             include_original_part=False,
         )
         p = UrlFetchProcessor(config)
@@ -243,7 +244,7 @@ class TestUrlFetchProcessor:
         assert config.timeout == 15.0
         assert config.include_original_part is True
         assert config.fail_on_error is False
-        assert config.content_processor == "beautifulsoup"
+        assert config.content_processor == ContentProcessor.BEAUTIFULSOUP
         assert config.extract_text_only is None  # deprecated field
 
         # Custom config
@@ -251,12 +252,12 @@ class TestUrlFetchProcessor:
             timeout=30.0,
             include_original_part=False,
             fail_on_error=True,
-            content_processor="raw",
+            content_processor=ContentProcessor.RAW,
         )
         assert config.timeout == 30.0
         assert config.include_original_part is False
         assert config.fail_on_error is True
-        assert config.content_processor == "raw"
+        assert config.content_processor == ContentProcessor.RAW
 
     def test_backward_compatibility_extract_text_only(self) -> None:
         """Test backward compatibility for extract_text_only parameter."""
@@ -266,13 +267,13 @@ class TestUrlFetchProcessor:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             config1 = FetchConfig(extract_text_only=True)
-            assert config1.content_processor == "beautifulsoup"
+            assert config1.content_processor == ContentProcessor.BEAUTIFULSOUP
 
         # Test extract_text_only=False maps to raw
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             config2 = FetchConfig(extract_text_only=False)
-            assert config2.content_processor == "raw"
+            assert config2.content_processor == ContentProcessor.RAW
 
     def test_processor_initialization(self) -> None:
         """Test UrlFetchProcessor initialization."""
@@ -284,6 +285,34 @@ class TestUrlFetchProcessor:
         config = FetchConfig(timeout=45.0)
         p = UrlFetchProcessor(config)
         assert p.config.timeout == 45.0
+
+    def test_content_processor_enum(self) -> None:
+        """Test ContentProcessor enum functionality."""
+        # Test enum usage
+        config1 = FetchConfig(content_processor=ContentProcessor.MARKITDOWN)
+        assert config1.content_processor == ContentProcessor.MARKITDOWN
+        assert config1.content_processor.value == "markitdown"
+
+        config2 = FetchConfig(content_processor=ContentProcessor.RAW)
+        assert config2.content_processor == ContentProcessor.RAW
+        assert config2.content_processor.value == "raw"
+
+        config3 = FetchConfig(content_processor=ContentProcessor.BEAUTIFULSOUP)
+        assert config3.content_processor == ContentProcessor.BEAUTIFULSOUP
+        assert config3.content_processor.value == "beautifulsoup"
+
+        # Test string-to-enum conversion (backward compatibility)
+        config4 = FetchConfig(content_processor="markitdown")
+        assert config4.content_processor == ContentProcessor.MARKITDOWN
+        assert isinstance(config4.content_processor, ContentProcessor)
+
+        # Test invalid string raises ValueError
+        expected_error = (
+            r"Invalid content_processor 'invalid_processor'\. "
+            r"Valid values are: 'beautifulsoup', 'markitdown', 'raw'\."
+        )
+        with pytest.raises(ValueError, match=expected_error):
+            FetchConfig(content_processor="invalid_processor")
 
     @pytest.mark.anyio
     async def test_default_security_settings(self) -> None:

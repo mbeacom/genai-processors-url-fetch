@@ -8,7 +8,7 @@ agents to access and process information from the web.
 This is an independent contrib processor for the genai-processors ecosystem.
 """
 
-from .url_fetch import FetchConfig, UrlFetchProcessor
+from .url_fetch import ContentProcessor, FetchConfig, UrlFetchProcessor
 
-__version__ = "0.2.0"
-__all__ = ["UrlFetchProcessor", "FetchConfig"]
+__version__ = "0.3.0"
+__all__ = ["UrlFetchProcessor", "FetchConfig", "ContentProcessor"]

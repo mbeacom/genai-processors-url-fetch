@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from genai_processors import processor
 
-from genai_processors_url_fetch import FetchConfig, UrlFetchProcessor
+from genai_processors_url_fetch import ContentProcessor, FetchConfig, UrlFetchProcessor
 
 
 class TestMarkitdownIntegration:
@@ -18,12 +18,12 @@ class TestMarkitdownIntegration:
         try:
             import markitdown  # noqa: F401
 
-            config = FetchConfig(content_processor="markitdown")
-            assert config.content_processor == "markitdown"
+            config = FetchConfig(content_processor=ContentProcessor.MARKITDOWN)
+            assert config.content_processor == ContentProcessor.MARKITDOWN
         except ImportError:
             # Should raise ImportError if markitdown is not available
             with pytest.raises(ImportError, match="markitdown is required"):
-                FetchConfig(content_processor="markitdown")
+                FetchConfig(content_processor=ContentProcessor.MARKITDOWN)
 
     def test_markitdown_options_passed_correctly(self) -> None:
         """Test markitdown options are passed to MarkItDown constructor."""
@@ -145,7 +145,7 @@ class TestMarkitdownIntegration:
             assert len(w) == 1
             assert issubclass(w[0].category, DeprecationWarning)
             assert "extract_text_only is deprecated" in str(w[0].message)
-            assert config1.content_processor == "beautifulsoup"
+            assert config1.content_processor == ContentProcessor.BEAUTIFULSOUP
 
         # Test extract_text_only=False maps to raw
         with warnings.catch_warnings(record=True) as w:
@@ -153,7 +153,7 @@ class TestMarkitdownIntegration:
             config2 = FetchConfig(extract_text_only=False)
             assert len(w) == 1
             assert issubclass(w[0].category, DeprecationWarning)
-            assert config2.content_processor == "raw"
+            assert config2.content_processor == ContentProcessor.RAW
 
     @pytest.mark.anyio
     async def test_invalid_content_processor_raises_error(self) -> None:
@@ -217,9 +217,9 @@ class TestMarkitdownIntegration:
         # Mock HAS_MARKITDOWN to be False to simulate markitdown not available
         patch_path = "genai_processors_url_fetch.url_fetch.HAS_MARKITDOWN"
         with patch(patch_path, new=False):
-            expected_msg = "markitdown is required for content_processor"
+            expected_msg = "markitdown is required for ContentProcessor.MARKITDOWN"
             with pytest.raises(ImportError, match=expected_msg):
-                FetchConfig(content_processor="markitdown")
+                FetchConfig(content_processor=ContentProcessor.MARKITDOWN)
 
     def test_extract_text_only_overrides_markitdown(self) -> None:
         """Test extract_text_only parameter overrides markitdown setting."""
@@ -236,7 +236,7 @@ class TestMarkitdownIntegration:
                 assert len(w) == 1
                 assert issubclass(w[0].category, DeprecationWarning)
                 assert "extract_text_only is deprecated" in str(w[0].message)
-                assert config.content_processor == "raw"  # Overridden
+                assert config.content_processor == ContentProcessor.RAW  # Overridden
 
         except ImportError:
             # If markitdown not available, test override with default
@@ -244,4 +244,4 @@ class TestMarkitdownIntegration:
                 warnings.simplefilter("always")
                 config = FetchConfig(extract_text_only=False)
                 assert len(w) == 1
-                assert config.content_processor == "raw"
+                assert config.content_processor == ContentProcessor.RAW
