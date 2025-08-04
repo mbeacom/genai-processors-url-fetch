@@ -125,8 +125,9 @@ class TestUrlFetchProcessor:
                     r for r in results if r.metadata.get("fetch_status") == "success"
                 ]
 
-                assert len(status_parts) == 1
-                assert "Fetched successfully" in status_parts[0].text
+                assert len(status_parts) == 2  # Processing + success status
+                assert any("Processing 1 URL(s)" in part.text for part in status_parts)
+                assert any("Fetched successfully" in part.text for part in status_parts)
                 assert len(content_parts) == 1
                 assert content_parts[0].text == "Test Content"
                 assert content_parts[0].metadata["source_url"] == "https://example.com"
@@ -159,23 +160,26 @@ class TestUrlFetchProcessor:
             part = processor.ProcessorPart("Visit https://notfound.com")
             results = [r async for r in p.call(part)]
 
-            # Should have status and failure parts
+            # Should have status parts and exception part
             status_parts = [
                 r for r in results if r.substream_name == processor.STATUS_STREAM
             ]
-            failure_parts = [
-                r for r in results if r.metadata.get("fetch_status") == "failure"
+            exception_parts = [
+                r for r in results if r.metadata.get("exception_type") == "RuntimeError"
             ]
 
-            assert len(status_parts) == 1
-            assert "Fetch failed" in status_parts[0].text
-            assert len(failure_parts) == 1
-            assert failure_parts[0].text == ""  # Empty content for failures
-            assert "404" in failure_parts[0].metadata["fetch_error"]
+            assert (
+                len(status_parts) == 3
+            )  # Processing + failure status + exception part
+            assert any("Processing 1 URL(s)" in part.text for part in status_parts)
+            assert any("Fetch failed" in part.text for part in status_parts)
+            assert len(exception_parts) == 1
+            assert "An unexpected error occurred" in exception_parts[0].text
+            assert "404" in exception_parts[0].metadata["original_exception"]
 
     @pytest.mark.anyio
     async def test_fail_on_error_config(self) -> None:
-        """Test that fail_on_error configuration raises exceptions."""
+        """Test that errors are converted to exception parts by the decorator."""
         config = FetchConfig(fail_on_error=True)
         p = UrlFetchProcessor(config)
 
@@ -194,10 +198,14 @@ class TestUrlFetchProcessor:
             mock_client.get.side_effect = error
 
             part = processor.ProcessorPart("Visit https://error.com")
+            results = [r async for r in p.call(part)]
 
-            with pytest.raises(RuntimeError):
-                async for _ in p.call(part):
-                    pass
+            # With decorator, exceptions are converted to exception parts
+            exception_parts = [
+                r for r in results if r.metadata.get("exception_type") == "RuntimeError"
+            ]
+            assert len(exception_parts) == 1
+            assert "Request Error" in exception_parts[0].metadata["original_exception"]
 
     @pytest.mark.anyio
     async def test_content_processor_raw_config(self) -> None:
@@ -470,19 +478,22 @@ class TestUrlFetchProcessor:
         part = processor.ProcessorPart("Visit https://malicious.com")
         results = [r async for r in p.call(part)]
 
-        # Should have status and failure parts
+        # Should have status parts and exception part
         status_parts = [
             r for r in results if r.substream_name == processor.STATUS_STREAM
         ]
-        failure_parts = [
-            r for r in results if r.metadata.get("fetch_status") == "failure"
+        exception_parts = [
+            r for r in results if r.metadata.get("exception_type") == "RuntimeError"
         ]
 
-        assert len(status_parts) == 1
-        assert "Fetch failed" in status_parts[0].text
-        assert len(failure_parts) == 1
-        error_msg = failure_parts[0].metadata["fetch_error"]
-        assert "Security validation failed" in error_msg
+        assert len(status_parts) == 3  # Processing + failure status + exception part
+        assert any("Processing 1 URL(s)" in part.text for part in status_parts)
+        assert any("Fetch failed" in part.text for part in status_parts)
+        assert len(exception_parts) == 1
+        assert (
+            "Domain 'malicious.com' not in allowed list"
+            in exception_parts[0].metadata["original_exception"]
+        )
 
     @pytest.mark.anyio
     async def test_create_success_part_validation_errors(self) -> None:
@@ -558,13 +569,34 @@ class TestUrlFetchProcessor:
             part = processor.ProcessorPart("Visit https://example.com")
             results = [r async for r in p.call(part)]
 
-            # Should have failure parts due to size limit
-            failure_parts = [
-                r for r in results if r.metadata.get("fetch_status") == "failure"
+            # Should have status parts and exception part
+            status_parts = [
+                r
+                for r in results
+                if r.substream_name == processor.STATUS_STREAM  # type: ignore
             ]
-            assert len(failure_parts) == 1
-            error_msg = failure_parts[0].metadata["fetch_error"]
-            assert "Response too large" in error_msg
+            exception_parts = [
+                r
+                for r in results
+                # type: ignore
+                if r.metadata.get("exception_type") == "RuntimeError"
+            ]
+
+            assert (
+                len(status_parts) == 3
+            )  # Processing + failure status + exception part
+            assert any(
+                "Processing 1 URL(s)" in part.text  # type: ignore
+                for part in status_parts
+            )
+            assert any(
+                "Fetch failed" in part.text for part in status_parts  # type: ignore
+            )
+            assert len(exception_parts) == 1
+            original_exception = exception_parts[0].metadata[  # type: ignore
+                "original_exception"
+            ]
+            assert "Response too large" in original_exception
 
     @pytest.mark.anyio
     async def test_streaming_response_size_exceeded(self) -> None:
@@ -595,10 +627,31 @@ class TestUrlFetchProcessor:
             part = processor.ProcessorPart("Visit https://example.com")
             results = [r async for r in p.call(part)]
 
-            # Should have failure parts due to size limit during streaming
-            failure_parts = [
-                r for r in results if r.metadata.get("fetch_status") == "failure"
+            # Should have status parts and exception part
+            status_parts = [
+                r
+                for r in results
+                if r.substream_name == processor.STATUS_STREAM  # type: ignore
             ]
-            assert len(failure_parts) == 1
-            error_msg = failure_parts[0].metadata["fetch_error"]
-            assert "Response exceeded" in error_msg
+            exception_parts = [
+                r
+                for r in results
+                # type: ignore
+                if r.metadata.get("exception_type") == "RuntimeError"
+            ]
+
+            assert (
+                len(status_parts) == 3
+            )  # Processing + failure status + exception part
+            assert any(
+                "Processing 1 URL(s)" in part.text  # type: ignore
+                for part in status_parts
+            )
+            assert any(
+                "Fetch failed" in part.text for part in status_parts  # type: ignore
+            )
+            assert len(exception_parts) == 1
+            original_exception = exception_parts[0].metadata[  # type: ignore
+                "original_exception"
+            ]
+            assert "Response exceeded" in original_exception
