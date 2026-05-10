@@ -10,5 +10,5 @@ This is an independent contrib processor for the genai-processors ecosystem.
 
 from .url_fetch import ContentProcessor, FetchConfig, UrlFetchProcessor
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 __all__ = ["UrlFetchProcessor", "FetchConfig", "ContentProcessor"]

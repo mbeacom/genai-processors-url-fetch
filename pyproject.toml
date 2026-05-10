@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "genai-processors-url-fetch"
-version = "0.3.2"
+version = "0.3.3"
 description = "A URL fetch processor for Google's genai-processors framework"
 authors = [
     {name = "Mark Beacom", email = "m@beacom.dev"},
