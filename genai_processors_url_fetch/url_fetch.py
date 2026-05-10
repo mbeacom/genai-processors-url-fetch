@@ -516,28 +516,17 @@ class UrlFetchProcessor(processor.PartProcessor):
             },
         )
 
-    async def _create_failure_part(
-        self,
-        result: FetchResult,
-        original_part: processor.ProcessorPart,
-    ) -> processor.ProcessorPart:
-        """Create a ProcessorPart for a failed fetch."""
-        return processor.ProcessorPart(
-            # Empty content for failures
-            "",
-            metadata={
-                **original_part.metadata,
-                "source_url": result.url,
-                "fetch_status": "failure",
-                "fetch_error": result.error_message,
-            },
-        )
-
+    @processor.yield_exceptions_as_parts  # type: ignore[arg-type]
     async def call(
         self,
         part: processor.ProcessorPart,
     ) -> AsyncIterable[processor.ProcessorPart]:
-        """Fetch URLs found in the part and yield results."""
+        """Fetch URLs found in the part and yield results.
+
+        Extracts URLs from the part's text, fetches each one, and yields
+        status updates and results. Failed fetches are automatically converted
+        to error parts by the @processor.yield_exceptions_as_parts decorator.
+        """
         urls = list(dict.fromkeys(URL_REGEX.findall(part.text or "")))
 
         if not urls:
@@ -546,14 +535,13 @@ class UrlFetchProcessor(processor.PartProcessor):
                 yield part
             return
 
+        yield processor.status(f"📄 Processing {len(urls)} URL(s)")
+
         headers = {"User-Agent": self.config.user_agent}
         async with httpx.AsyncClient(headers=headers) as client:
-            # Create tasks to fetch all URLs concurrently
-            tasks = [self._fetch_one(url, client) for url in urls]
-            results = await asyncio.gather(*tasks)
-
-            # Process all results
-            for result in results:
+            # Process each URL individually
+            for url in urls:
+                result = await self._fetch_one(url, client)
 
                 if result.ok:
                     yield processor.status(
@@ -562,10 +550,10 @@ class UrlFetchProcessor(processor.PartProcessor):
                     yield await self._create_success_part(result, part)
                 else:
                     yield processor.status(f"❌ Fetch failed: {result.url}")
-                    if self.config.fail_on_error:
-                        raise RuntimeError(result.error_message)
-                    yield await self._create_failure_part(result, part)
+                    # Raise exception for failed fetch - decorator converts to error part
+                    error_msg = f"Failed to fetch {url}: {result.error_message}"
+                    raise RuntimeError(error_msg)
 
-        # Finally, yield the original part if configured to do so
+        # Include original part if configured to do so
         if self.config.include_original_part:
             yield part
